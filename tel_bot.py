@@ -6,7 +6,7 @@ import sched
 
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, executor, types
-from main_generator import main_generator
+from telegram_bot.main_sync_generator import main_generator
 from models import today_pure_price_mov, global_pure_price_mov, price
 from messages import START_MESSAGE
 load_dotenv()
