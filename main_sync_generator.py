@@ -2,16 +2,12 @@
 import requests
 import json
 import time
+import datetime
 import sched
 import pandas
 
-price = {
-        'last_price': {},
-        'actual_price':{}
-}
+from models import price, today_pure_price_mov, global_pure_price_mov
 
-today_pure_price_mov = []
-global_pure_price_mov = {}
 
 def set_starting_data(altcoin, yesterday_date, fiat_c='usd'):
     global price
@@ -43,7 +39,9 @@ def get_previous_price(fiat_coin, crypto_asset, date):
     response = requests.get(f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history', params={'date':date})
     data_price = json.loads(response.text)['market_data']['current_price'][fiat_coin]
     price['last_price'][crypto_asset] = data_price
-    
+    return (data_price)
+
+
 
 def get_current_pure_price_mov (last_price_accet,
                         cur_price_accet,
@@ -56,30 +54,40 @@ def get_current_pure_price_mov (last_price_accet,
         result_obj['Price movement in one direction'] = True
     else:
         result_obj['Price movement in one direction'] = False
-    result = (cur_price_accet-last_price_accet)/last_price_accet-(cur_price_btc-last_price_btc)/last_price_btc
+    result_obj['Bitcoin price movement'] = round((cur_price_btc-last_price_btc)/last_price_btc*100,2)
+    result_obj['Current altcoin price movement'] = round((cur_price_accet-last_price_accet)/last_price_accet*100,2)
     #print (result)
-    result_obj['Price movement data'] = round(result, 4)
+    result_obj['Pure price movement data'] = round(result_obj['Current altcoin price movement']-result_obj['Bitcoin price movement'],2)
     #print (result_obj['Price movement data'])
     today_pure_price_mov.append(result_obj)
     return result_obj
 #template of response: {'date': 'Mon Mar 20 15:50:05 2023', 'Price movement in one direction': True, 'Price movement data': 0.0074}
 
-
 def modificated_data_to_next_day ():
-    global time_begin, today_pure_price_mov, global_pure_price_mov
+    global today_pure_price_mov, global_pure_price_mov, current_date
     interim_data=0
     for mov_price in today_pure_price_mov:
-        interim_data+=mov_price['Price movement data']
+        interim_data+=mov_price['Pure price movement data']
     average_pure_price_mov = interim_data/len(today_pure_price_mov)
-    global_pure_price_mov[f'{time.gmtime(time_begin).tm_mday}-{time.gmtime(time_begin).tm_mon}-{time.gmtime(time_begin).tm_year}:']:round(average_pure_price_mov, 4)
+    global_pure_price_mov[f'{current_date}:']:round(average_pure_price_mov, 4)
 
     today_pure_price_mov.clear()
-    time_begin = time.time()
+    current_date = datetime.datetime.now().date()
     print (f'Время сброса:{time.gmtime(time.time())}')
     return (global_pure_price_mov)
 
+def get_cur_list(alt):
+    response_data = requests.get(f'https://api.coingecko.com/api/v3/coins/list')
+    dict_data = json.loads(response_data.text)
+    id_list= []
+    [id_list.append(coin['id']) for coin in dict_data ]
+    if alt not in id_list:
+        raise NameError("This coin is not supported, check the correct name")
+
+
 def main_generator (crypto_asset, fiat_c='usd',):
-    global price, today_pure_price_mov, global_pure_price_mov    
+    global price, today_pure_price_mov, global_pure_price_mov
+    current_date = datetime.datetime.now().date()
     time_begin = time.time()
     date_for_prev_price = f"{int(time.gmtime(time_begin).tm_mday)-1}-{time.gmtime(time_begin).tm_mon}-{time.gmtime(time_begin).tm_year}"
     set_starting_data (crypto_asset, date_for_prev_price) 
@@ -96,20 +104,21 @@ def main_generator (crypto_asset, fiat_c='usd',):
                                                             price['actual_price']['bitcoin'])
 #template of response: {'date': 'Mon Mar 20 15:50:05 2023', 'Price movement in one direction': True, 'Price movement data': 0.0074}
         crud_data_for_response = {
-            f"Last price of BTC on {price['last_price']['date']}:":price['last_price']['bitcoin'],
-            'Actual price of BTC:': price['actual_price']['bitcoin'],
-            f"Last price of {crypto_asset} on {price['last_price']['date']}:":price['last_price'][crypto_asset],
-            f'Actual price of {crypto_asset}:': price['actual_price'][crypto_asset],
-            'Asset price synchronization assets:': current_move_price_data['Price movement in one direction'],
+            f"Last price of BTC on {price['last_price']['date']}:":f"{round(price['last_price']['bitcoin'],2)}$",
+            'Actual price of BTC:': f"{price['actual_price']['bitcoin']}$",
+            'Bitcoin price movement': f"{current_move_price_data['Bitcoin price movement']}%",
+            f"Last price of {crypto_asset} on {price['last_price']['date']}:":f"{round(price['last_price'][crypto_asset],2)}$",
+            f'Actual price of {crypto_asset}:': f"{round(price['actual_price'][crypto_asset],2)}$",
+            f'{crypto_asset} price movement:': f"{current_move_price_data['Current altcoin price movement']}%",
+            'Asset price synchronization assets:': f"{current_move_price_data['Price movement in one direction']}",
             'Date:': current_move_price_data['date'],
-            f'independent movement of an asset {crypto_asset}:': f"{current_move_price_data['Price movement data']*100}%"
+            f'independent movement of an asset {crypto_asset}:': f"{current_move_price_data['Pure price movement data']}%"
         }
         my_response = pandas.Series(crud_data_for_response, crud_data_for_response.keys())
         price['last_price']['bitcoin'], price['last_price'][crypto_asset], price['last_price']['date'] = price['actual_price']['bitcoin'],\
                                                                                                          price['actual_price'][crypto_asset],\
                                                                                                          price['actual_price']['date']
-        if time.gmtime(time.time()).tm_mday !=time.gmtime(time_begin).tm_mday:
-            print (time.gmtime(time.time()))
+        if current_date != datetime.datetime.now().date():
             print ('Next day!')
             modificated_data_to_next_day()
             global_data = pandas.Series(global_pure_price_mov, global_pure_price_mov.keys())
@@ -123,6 +132,7 @@ def main_generator (crypto_asset, fiat_c='usd',):
 #     time.sleep(60)
 #     print (next(data_price_gen))
     
+
 
 
 
