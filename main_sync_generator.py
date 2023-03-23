@@ -8,7 +8,6 @@ import pandas
 
 from models import price, today_pure_price_mov, global_pure_price_mov
 
-
 def set_starting_data(altcoin, yesterday_date, fiat_c='usd'):
     global price
     get_previous_price(fiat_c, 'bitcoin', yesterday_date)
@@ -122,15 +121,22 @@ def main_generator (crypto_asset, fiat_c='usd',):
             print ('Next day!')
             modificated_data_to_next_day()
             global_data = pandas.Series(global_pure_price_mov, global_pure_price_mov.keys())
-            yield (global_data, my_response)
+            val = (yield (global_data, my_response))
+            if val in ['stop', 'Stop', 'stop ']:
+                break
         else:
-            yield (my_response)
+            val = (yield (my_response))
+            #print (val)
+            if val in ['stop', 'Stop', 'stop ']:
+                break
 
 # data_price_gen = main_generator('ethereum')
 # print(next(data_price_gen))
-# for i in range (4):
-#     time.sleep(60)
-#     print (next(data_price_gen))
+# for i in range (6):
+#       if i == 3:
+#           data_price_gen.send('stop')
+#       time.sleep(30)
+#       print (next(data_price_gen))
     
 
 

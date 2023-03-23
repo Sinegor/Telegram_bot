@@ -127,11 +127,3 @@ async def main_generator (crypto_asset, fiat_c='usd',):
         else:
             yield (my_response)
 
-
-data_price_gen = main_generator('ethereum')
-await data_price_gen
-
-for i in range (4):
-    time.sleep(60)
-    print (next(data_price_gen))
-  

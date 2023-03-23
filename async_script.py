@@ -3,37 +3,19 @@ import json
 import time
 import sched
 import asyncio
+import datetime
+import pandas
 
+from models import price, today_pure_price_mov, global_pure_price_mov
 
-price = {
-    'last_price': {},
-    'actual_price':{}
-}
-url_file = './data.txt'
-today_pure_price_mov = []
-global_pure_price_mov = {}
-sched_object = sched.scheduler(time.time, time.sleep)
-time_begin = time.time()
+async def set_starting_data (altcoin, yesterday_date, fiat_c='usd'):
+    global price
+    await get_previous_price('bitcoin', yesterday_date)
+    await get_previous_price(altcoin, yesterday_date)
+    price['last_price']['date'] = yesterday_date
 
-
-async def main_handler(alt):
-    sched_object.enter(60, 1, main_handler, kwargs={'alt':'ethereum'})
-    global today_pure_price_mov, global_pure_price_mov, price
-    date_for_prev_price = f"{int(time.gmtime(time_begin).tm_mday)-1}-{time.gmtime(time_begin).tm_mon}-{time.gmtime(time_begin).tm_year}"
-    await get_previous_price(alt, date_for_prev_price)
-    await get_previous_price('bitcoin', date_for_prev_price)
-    current_pricies = await get_crypto_price(alt)
-    price['actual_price']['bitcoin'], price['actual_price'][alt] = current_pricies['bitcoin'], current_pricies[alt]
-    today_pure_price_mov.append(get_current_pure_price_mov(price['last_price'][alt], 
-                                                           price['actual_price'][alt],
-                                                           price['last_price']['bitcoin'],
-                                                           price['actual_price']['bitcoin']))
-    price['last_price']['bitcoin'], price['last_price'][alt] = price['actual_price']['bitcoin'], price['actual_price'][alt]
-    if time.gmtime(time.time()).tm_mday !=time.gmtime(time_begin).tm_mday:
-        print (time.gmtime(time.time()))
-        print ('Next day!')
-        modificated_data_to_next_day()
-    sched_object.run()
+def string_handling(str:str):
+    return str.rstrip().lstrip().lower()
 
 
 
@@ -45,62 +27,111 @@ arg date template: "xx-xx-xxxx"
     global data_price
     async with aiohttp.ClientSession() as session:
         my_params = {'date':date}
-        async with session.get(f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history',**{"params":my_params}) as response:
+        my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
+        async with session.get(url=my_url,**{"params":my_params}) as response:
             response_data = await response.text()
             data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])
             price['last_price'][crypto_asset] = data_price
             return data_price
 
 
-async def get_crypto_price(crypto_asset, fiat_coin='usd'):
+async def get_crypto_price(*crypto_assets, fiat_coin='usd'):
     async with aiohttp.ClientSession() as session:
         params_query = {
-        'ids': f'{crypto_asset},bitcoin',
+        'ids': ','.join(crypto_assets),
         'vs_currencies': fiat_coin
         }
-        async with session.get('https://api.coingecko.com/api/v3/simple/price', **{'params':params_query}) as response:
+        my_url = 'https://api.coingecko.com/api/v3/simple/price'
+        async with session.get(url=my_url, **{'params':params_query}) as response:
             response_data = await response.text()
             data_dict = json.loads(response_data)
-            result_data = {
-                'bitcoin':data_dict['bitcoin'][fiat_coin],
-                crypto_asset: data_dict[crypto_asset][fiat_coin]
-
-            }
-            print (f'Цена на данный момент: {result_data}')
+            time_geting_data  = time.asctime()
+            result_data = {}
+            result_data['date'] = time_geting_data
+            for crypto in crypto_assets:
+                result_data[crypto]= data_dict[crypto][fiat_coin] 
             return result_data 
+            
 # template returning: {'bitcoin': 24531, 'ethereum': 1673.37}
 
 
-
 def modificated_data_to_next_day ():
-    global time_begin, today_pure_price_mov, global_pure_price_mov
+    global today_pure_price_mov, global_pure_price_mov, current_date
     interim_data=0
     for mov_price in today_pure_price_mov:
-        interim_data+=mov_price['data']
+        interim_data+=mov_price['Pure price movement data']
     average_pure_price_mov = interim_data/len(today_pure_price_mov)
-    global_pure_price_mov[f'{time.gmtime(time_begin).tm_mday}-{time.gmtime(time_begin).tm_mon}-{time.gmtime(time_begin).tm_year}']=round(average_pure_price_mov, 4)
-    with open(url_file, 'a') as file:
-        file.write(f'{time.gmtime(time_begin).tm_mday}-{time.gmtime(time_begin).tm_mon}-{time.gmtime(time_begin).tm_year}:{today_pure_price_mov}')    
+    global_pure_price_mov[f'{current_date}:']:round(average_pure_price_mov, 4)
+
     today_pure_price_mov.clear()
-    time_begin = time.time()
+    current_date = datetime.datetime.now().date()
     print (f'Время сброса:{time.gmtime(time.time())}')
+    return (global_pure_price_mov)
+
+
 
 def get_current_pure_price_mov (last_price_accet,
                         cur_price_accet,
                         last_price_btc,
                         cur_price_btc):
+    global today_pure_price_mov
     result_obj ={}
+    result_obj['date'] = time.asctime() 
     if (cur_price_accet-last_price_accet)*(cur_price_btc-last_price_btc)>0:
         result_obj['Price movement in one direction'] = True
     else:
         result_obj['Price movement in one direction'] = False
-    result = (cur_price_accet-last_price_accet)/last_price_accet-(cur_price_btc-last_price_btc)/last_price_btc
-    print (f"Движение актива:{(cur_price_accet-last_price_accet)/last_price_accet} Движение битка: {(cur_price_btc-last_price_btc)/last_price_btc}")
-    result_obj['data'] = round(result, 4)
-    print (f'Цена актива двигается в одну сторону с битком: {result_obj["Price movement in one direction"]},\
-            отклонение составляет: {round(result, 4)*100}% \n')
+    result_obj['Bitcoin price movement'] = round((cur_price_btc-last_price_btc)/last_price_btc*100,2)
+    result_obj['Current altcoin price movement'] = round((cur_price_accet-last_price_accet)/last_price_accet*100,2)
+    #print (result)
+    result_obj['Pure price movement data'] = round(result_obj['Current altcoin price movement']-result_obj['Bitcoin price movement'],2)
+    #print (result_obj['Price movement data'])
+    today_pure_price_mov.append(result_obj)
     return result_obj
+#template of response: {'date': 'Mon Mar 20 15:50:05 2023', 'Price movement in one direction': True, 'Price movement data': 0.0074}
 
-if __name__ == '__main__':
-    asyncio.run(main_handler('ethereum'))
+async def subscribe (crypto_asset, date):
+    global price, today_pure_price_mov, global_pure_price_mov
+    current_pricies = await get_crypto_price('bitcoin', crypto_asset)
+    price['actual_price']['bitcoin'], price['actual_price'][crypto_asset], price['actual_price']['date'] = \
+                                                                                current_pricies['bitcoin'],\
+                                                                                current_pricies[crypto_asset],\
+                                                                                current_pricies['date']
+
+    today_pure_price_mov.append(get_current_pure_price_mov(price['last_price'][crypto_asset], 
+                                                        price['actual_price'][crypto_asset],
+                                                        price['last_price']['bitcoin'],
+                                                        price['actual_price']['bitcoin']))
+    current_move_price_data = get_current_pure_price_mov(price['last_price'][crypto_asset], 
+                                                        price['actual_price'][crypto_asset],
+                                                        price['last_price']['bitcoin'],
+                                                        price['actual_price']['bitcoin'])
+
+    crud_data_for_response = {
+        f"Last price of BTC on {price['last_price']['date']}:":f"{round(price['last_price']['bitcoin'],2)}$",
+        'Actual price of BTC:': f"{price['actual_price']['bitcoin']}$",
+        'Bitcoin price movement': f"{current_move_price_data['Bitcoin price movement']}%",
+        f"Last price of {crypto_asset} on {price['last_price']['date']}:":f"{round(price['last_price'][crypto_asset],2)}$",
+        f'Actual price of {crypto_asset}:': f"{round(price['actual_price'][crypto_asset],2)}$",
+        f'{crypto_asset} price movement:': f"{current_move_price_data['Current altcoin price movement']}%",
+        'Asset price synchronization assets:': f"{current_move_price_data['Price movement in one direction']}",
+        'Date:': current_move_price_data['date'],
+        f'independent movement of an asset {crypto_asset}:': f"{current_move_price_data['Pure price movement data']}%"
+    }
+    my_response = pandas.Series(crud_data_for_response, crud_data_for_response.keys())
+    price['last_price']['bitcoin'], price['last_price'][crypto_asset], price['last_price']['date'] = price['actual_price']['bitcoin'],\
+                                                                                                        price['actual_price'][crypto_asset],\
+                                                                                                        price['actual_price']['date']
+    if  date != datetime.datetime.now().date():
+        print ('Next day!')
+        modificated_data_to_next_day()
+        global_data = pandas.Series(global_pure_price_mov, global_pure_price_mov.keys())
+        return (global_data, my_response)
+    else:
+        return my_response
+
+
+
+# if __name__ == '__main__':
+#     print(asyncio.run(main_handler('ethereum')))
     
