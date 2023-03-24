@@ -32,7 +32,7 @@ async def st_handler_1 (message: types.Message):
     user_id = message.from_id
     current_date = datetime.datetime.now().date()
     time_begin = time.time()
-    date_for_prev_price = f"{int(time.gmtime(time_begin).tm_mday)-1}-{time.gmtime(time_begin).tm_mon}-{time.gmtime(time_begin).tm_year}"
+    date_for_prev_price = f'{current_date.day-1}-{current_date.month}-{current_date.year}'
     coin = string_handling(message.text)
     try:
         await set_starting_data(coin,date_for_prev_price)
@@ -41,8 +41,9 @@ async def st_handler_1 (message: types.Message):
             subscribe_response = await subscribe(coin, current_date)
             await message.reply(subscribe_response)
             i+=1
-            await asyncio.sleep(30)
+            await asyncio.sleep(60)
     except KeyError as e:
+        print(e)
         await message.reply('Error, no such coin. Check spelling correctly.')
    
    

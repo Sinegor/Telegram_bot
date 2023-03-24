@@ -1,7 +1,6 @@
 import aiohttp
 import json
 import time
-import sched
 import asyncio
 import datetime
 import pandas
@@ -55,17 +54,15 @@ async def get_crypto_price(*crypto_assets, fiat_coin='usd'):
 # template returning: {'bitcoin': 24531, 'ethereum': 1673.37}
 
 
-def modificated_data_to_next_day ():
+def modificated_data_to_next_day (past_day):
     global today_pure_price_mov, global_pure_price_mov, current_date
-    interim_data=0
+    pure_price_mov_day=0
+    print (today_pure_price_mov)
     for mov_price in today_pure_price_mov:
-        interim_data+=mov_price['Pure price movement data']
-    average_pure_price_mov = interim_data/len(today_pure_price_mov)
-    global_pure_price_mov[f'{current_date}:']:round(average_pure_price_mov, 4)
-
+        pure_price_mov_day+=mov_price['Pure price movement data']
+    global_pure_price_mov[f'{str(past_day)}'] = round(pure_price_mov_day, 4)
     today_pure_price_mov.clear()
     current_date = datetime.datetime.now().date()
-    print (f'Время сброса:{time.gmtime(time.time())}')
     return (global_pure_price_mov)
 
 
@@ -98,10 +95,6 @@ async def subscribe (crypto_asset, date):
                                                                                 current_pricies[crypto_asset],\
                                                                                 current_pricies['date']
 
-    today_pure_price_mov.append(get_current_pure_price_mov(price['last_price'][crypto_asset], 
-                                                        price['actual_price'][crypto_asset],
-                                                        price['last_price']['bitcoin'],
-                                                        price['actual_price']['bitcoin']))
     current_move_price_data = get_current_pure_price_mov(price['last_price'][crypto_asset], 
                                                         price['actual_price'][crypto_asset],
                                                         price['last_price']['bitcoin'],
@@ -124,9 +117,8 @@ async def subscribe (crypto_asset, date):
                                                                                                         price['actual_price']['date']
     if  date != datetime.datetime.now().date():
         print ('Next day!')
-        modificated_data_to_next_day()
-        global_data = pandas.Series(global_pure_price_mov, global_pure_price_mov.keys())
-        return (global_data, my_response)
+        modificated_data_to_next_day(date)
+        return (global_pure_price_mov, my_response)
     else:
         return my_response
 
