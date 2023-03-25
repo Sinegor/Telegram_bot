@@ -31,25 +31,20 @@ async def st_handler_1 (message: types.Message):
     global price, today_pure_price_mov, global_pure_price_mov
     user_id = message.from_id
     current_date = datetime.datetime.now().date()
-    time_begin = time.time()
-    date_for_prev_price = f'{current_date.day-1}-{current_date.month}-{current_date.year}'
     coin = string_handling(message.text)
     try:
-        await set_starting_data(coin,date_for_prev_price)
+        await message.reply(f'Last week data on net percentage movement of {coin} asset compared to bitcoin movement: {await set_starting_data(coin)}')
         i =1
-        while i<4:
+        while i<20:
             subscribe_response = await subscribe(coin, current_date)
             await message.reply(subscribe_response)
             i+=1
-            await asyncio.sleep(60)
+            await asyncio.sleep(5000)
     except KeyError as e:
-        print(e)
         await message.reply('Error, no such coin. Check spelling correctly.')
+        print(e)
    
    
-
-
-
 if __name__ == '__main__':
     executor.start_polling(sin_disp)
 

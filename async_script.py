@@ -7,31 +7,56 @@ import pandas
 
 from models import price, today_pure_price_mov, global_pure_price_mov
 
-async def set_starting_data (altcoin, yesterday_date, fiat_c='usd'):
-    global price
-    await get_previous_price('bitcoin', yesterday_date)
-    await get_previous_price(altcoin, yesterday_date)
-    price['last_price']['date'] = yesterday_date
-
 def string_handling(str:str):
     return str.rstrip().lstrip().lower()
 
+async def set_starting_data (altcoin):
+    global price, global_pure_price_mov
+    btc_previous_price = await get_previous_week_data_price('bitcoin')
+    alt_previous_price = await get_previous_week_data_price(altcoin)
+    price['last_price'][altcoin] = alt_previous_price[6]
+    price['last_price']['bitcoin'] = btc_previous_price[6]
+    price['last_price']['date'] = datetime.datetime.fromtimestamp(time.time()-86400).date()
+    return get_previous_week_pure_price_mov(alt_previous_price, btc_previous_price)
 
 
-async def get_previous_price(crypto_asset, date, fiat_coin='usd',):
-    """
-arg date template: "xx-xx-xxxx"
 
-    """
-    global data_price
+async def get_previous_week_data_price(crypto_asset, fiat_coin='usd'):
+    """ Get stock price data for the past seven days """
+    global price
+    price_crypto_asset_list = []
+    day_ago = 7
     async with aiohttp.ClientSession() as session:
-        my_params = {'date':date}
-        my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
-        async with session.get(url=my_url,**{"params":my_params}) as response:
-            response_data = await response.text()
-            data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])
-            price['last_price'][crypto_asset] = data_price
-            return data_price
+        while day_ago>=1:
+            my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
+            time_stamp = time.time()-86400*day_ago
+            date_request = datetime.datetime.fromtimestamp(time_stamp).date()
+            date_param = f'{date_request.day}-{date_request.month}-{date_request.year}'
+            my_params = {'date':date_param}
+            async with session.get(url=my_url,**{"params":my_params}) as response:
+                response_data = await response.text()
+                data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])
+                price_crypto_asset_list.append(data_price)
+                day_ago-=1 
+        
+        return price_crypto_asset_list
+
+
+
+def get_previous_week_pure_price_mov(alt_price_list, btc_price_list):
+    """ Net asset price movement for the past six days less Bitcoin price movement """
+    global global_pure_price_mov
+    alt_mov = [((alt_price_list[i]-alt_price_list[i-1])/alt_price_list[i-1]*100) for i in range(1,7)]
+    btc_mov = [((btc_price_list[i]-btc_price_list[i-1])/btc_price_list[i-1]*100) for i in range(1,7)]
+    for i in range(6):
+        cur_time_stamp = time.time()-86400*(6-i)
+        date = str(datetime.datetime.fromtimestamp(cur_time_stamp).date())
+        global_pure_price_mov[date]= f"{round((alt_mov[i] - btc_mov[i]),2)} %"
+    my_response = pandas.Series(global_pure_price_mov, global_pure_price_mov.keys())
+    return my_response
+# template response: {'2023-03-18': -0.7900000000000009, '2023-03-19': -3.1, '2023-03-20': -1.5, '2023-03-21': -5.06, '2023-03-22': 3.4799999999999995, '2023-03-23': -2.0}
+
+
 
 
 async def get_crypto_price(*crypto_assets, fiat_coin='usd'):
