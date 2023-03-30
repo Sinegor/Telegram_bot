@@ -40,6 +40,7 @@ def get_crypto_price(fiat_coin, *crypto_assets):
      'ids': ','.join(crypto_assets),
      'vs_currencies': fiat_coin
     }
+    
     my_crypto_client = requests.get('https://api.coingecko.com/api/v3/simple/price', params=params_query)
     dict_response = json.loads(my_crypto_client.text)
     result_data = {}
@@ -79,7 +80,6 @@ def get_previous_price(fiat_coin, crypto_asset, date):
 
 def main(crypto_asset, fiat_c,):
     sched_object.enter(60, 1, main, kwargs={'crypto_asset':'ethereum','fiat_c':'usd' })
-    print (time.gmtime(time.time()))
     global price
     current_pricies = get_crypto_price(fiat_c, 'bitcoin', crypto_asset)
     price['actual_price']['bitcoin'], price['actual_price'][crypto_asset] = current_pricies['bitcoin'], current_pricies[crypto_asset]
@@ -96,9 +96,9 @@ def main(crypto_asset, fiat_c,):
     sched_object.run()
 
 if __name__ == '__main__':
-    #initial_data('ethereum', 'usd', date_for_prev_price)
+    initial_data('ethereum', 'usd', date_for_prev_price)
     main('ethereum', 'usd')
-    #sched_object.run()
+    sched_object.run()
     
 
 
