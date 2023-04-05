@@ -13,25 +13,17 @@ def string_handling(str:str):
 
 
 # Функция для свободной команды, используется в set_starting_data. Получает данные об изменениях цены актива за прошедшую неделю:
-async def get_previous_week_data_price(crypto_asset, fiat_coin='usd'):
-    """ Get stock price data for the past seven days """
-    global price
-    price_crypto_asset_list = []
-    day_ago = 7
+async def get_previous_data_price(crypto_asset, fiat_coin='usd'):
     connector = aiohttp.TCPConnector(limit=50, force_close=True)
     async with aiohttp.ClientSession(connector=connector) as session:
-        while day_ago>=1:
-            my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
-            time_stamp = time.time()-86400*day_ago
-            date_request = datetime.datetime.fromtimestamp(time_stamp).date()
-            date_param = f'{date_request.day}-{date_request.month}-{date_request.year}'
-            my_params = {'date':date_param}
-            response_data = await make_connection(session, my_url, my_params)
-            data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])
-            price_crypto_asset_list.append(data_price)
-            day_ago-=1 
-                        
-        return price_crypto_asset_list
+        my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
+        time_stamp = time.time()-86400
+        date_request = datetime.datetime.fromtimestamp(time_stamp).date()
+        date_param = f'{date_request.day}-{date_request.month}-{date_request.year}'
+        my_params = {'date':date_param}
+        response_data = await make_connection(session, my_url, my_params)
+        data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])                        
+        return data_price
 
 # Базовая функция направления get-запроса, в которую передаётся объект сессии + параметры запроса.
 async def make_connection(session, url, params):
@@ -80,28 +72,6 @@ async def get_previous_week_btc_data_price_1(fiat_coin='usd'):
             price_btc_data = pandas.Series(price_btc_data, price_btc_data.keys())
             return price_btc_data
         
-# Вариант функции для обработки команды "History"
-# async def get_previous_week_btc_data_price(fiat_coin='usd'):
-#     """ Get stock price data for the past seven days """
-#     price_btc_data = {}
-#     day_ago = 7
-#     async with aiohttp.ClientSession() as session:
-#         while day_ago>=1:
-#             my_url = f'https://api.coingecko.com/api/v3/coins/bitcoin/history'
-#             time_stamp = time.time()-86400*day_ago
-#             date_request = datetime.datetime.fromtimestamp(time_stamp).date()
-#             date_param = f'{date_request.day}-{date_request.month}-{date_request.year}'
-#             my_params = {'date':date_param}
-#             async with session.get(url=my_url,**{"params":my_params}) as response:
-#                 response_data = await response.text()
-#                 data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])
-#                 price_btc_data[date_param] = data_price
-#                 day_ago-=1 
-#         price_btc_data = pandas.Series(price_btc_data, price_btc_data.keys())
-#         return price_btc_data
-
-
-
 
 # Функция для свободной команды. Используется в set_starting_data. На основании передаваемых данных о недельном изменении цены альта
 # и битка производит расчёт чистового ценового движения альта за прошлую неделю.
@@ -139,19 +109,6 @@ async def get_crypto_price(*crypto_assets, fiat_coin='usd'):
         
 # template returning: {'bitcoin': 24531, 'ethereum': 1673.37}
 
-# Функция для свободной команды - производит модификацию данных при окончании дня. 
-def modificated_data_to_next_day (past_day):
-    global today_pure_price_mov, global_pure_price_mov, current_date
-    pure_price_mov_day=0
-    print (today_pure_price_mov)
-    for mov_price in today_pure_price_mov:
-        pure_price_mov_day+=mov_price['Pure price movement data']
-    global_pure_price_mov[f'{str(past_day)}'] = round(pure_price_mov_day, 4)
-    today_pure_price_mov.clear()
-    current_date = datetime.datetime.now().date()
-    return (global_pure_price_mov)
-
-
 # Функция для свободной команды - расчитывает текущее свободное ценовое движение актива (с момента последней отсечки)
 def get_current_pure_price_mov (last_price_accet,
                         cur_price_accet,
@@ -176,19 +133,16 @@ def get_current_pure_price_mov (last_price_accet,
 # Функция для "свободной команды": Сборная функция:  1. получает данные о недельном ценовом движении битка + выбранного альта. 2. Определяет начальное 
 # прошлое ценовое движение для битка и альта. 3. Возвращает данные о чистом ценовом движении актива за прошедшую неделю:
 async def set_starting_data (altcoin):
-    global price, global_pure_price_mov
-    btc_previous_price = await get_previous_week_data_price('bitcoin')
-    alt_previous_price = await get_previous_week_data_price(altcoin)
-    price['last_price'][altcoin] = alt_previous_price[6]
-    price['last_price']['bitcoin'] = btc_previous_price[6]
+    global price
+    alt_previous_price = await get_previous_data_price(altcoin)
+    btc_previous_price = await get_previous_data_price('bitcoin')
+    price['last_price'][altcoin] = alt_previous_price
+    price['last_price']['bitcoin'] = btc_previous_price
     price['last_price']['date'] = datetime.datetime.fromtimestamp(time.time()-86400).date()
-    return get_previous_week_pure_price_mov(alt_previous_price, btc_previous_price)
-
-
 
 # Функция для "свободной команды": Сборная функция:
 async def subscribe (crypto_asset, date):
-    global price, today_pure_price_mov, global_pure_price_mov
+    global price, today_pure_price_mov
     current_pricies = await get_crypto_price('bitcoin', crypto_asset)
     price['actual_price']['bitcoin'], price['actual_price'][crypto_asset], price['actual_price']['date'] = \
                                                                                 current_pricies['bitcoin'],\
@@ -215,12 +169,8 @@ async def subscribe (crypto_asset, date):
     price['last_price']['bitcoin'], price['last_price'][crypto_asset], price['last_price']['date'] = price['actual_price']['bitcoin'],\
                                                                                                         price['actual_price'][crypto_asset],\
                                                                                                         price['actual_price']['date']
-    if  date != datetime.datetime.now().date():
-        print ('Next day!')
-        modificated_data_to_next_day(date)
-        return (global_pure_price_mov, my_response)
-    else:
-        return my_response
+    
+    return my_response
 
 
 
