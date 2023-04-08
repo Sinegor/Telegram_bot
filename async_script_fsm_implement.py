@@ -6,6 +6,8 @@ import datetime
 import pandas
 
 from models import price, today_pure_price_mov, global_pure_price_mov
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.dispatcher import FSMContext
 
 
 def string_handling(str:str):
@@ -34,7 +36,9 @@ async def make_connection(session, url, params):
 # Функция для обработки команды "History": цена за неделю по дням.
 async def get_previous_week_btc_data_price_1(fiat_coin='usd'):
     """ Get stock price data for the past seven days """
-    price_btc_data = {}
+    #price_btc_data = {}
+    price_btc_data = []
+
     day_ago = 7
     async with aiohttp.ClientSession() as session:
             while day_ago>=1:
@@ -46,7 +50,9 @@ async def get_previous_week_btc_data_price_1(fiat_coin='usd'):
                     my_params = {'date':date_param}
                     crud_data = await make_connection(session, my_url, my_params)
                     data_price= (json.loads(crud_data)['market_data']['current_price'][fiat_coin])
-                    price_btc_data[date_param] = data_price
+                    crud_dict = {f'{date_param}':data_price}
+                    price_btc_data.append(crud_dict)
+                    #price_btc_data[f'{date_param}:'] = data_price
                     day_ago-=1 
                 except aiohttp.ServerDisconnectedError as e:
                     crud_data = await make_connection(session, my_url, my_params)
@@ -69,7 +75,7 @@ async def get_previous_week_btc_data_price_1(fiat_coin='usd'):
                     print (e, e.message)
                     day_ago-=1 
                     continue
-            price_btc_data = pandas.Series(price_btc_data, price_btc_data.keys())
+            
             return price_btc_data
         
 
@@ -133,42 +139,48 @@ def get_current_pure_price_mov (last_price_accet,
 # Функция для "свободной команды": Сборная функция:  1. получает данные о недельном ценовом движении битка + выбранного альта. 2. Определяет начальное 
 # прошлое ценовое движение для битка и альта. 3. Возвращает данные о чистом ценовом движении актива за прошедшую неделю:
 async def set_starting_data (altcoin):
-    global price
+    #global price
     alt_previous_price = await get_previous_data_price(altcoin)
     btc_previous_price = await get_previous_data_price('bitcoin')
-    price['last_price'][altcoin] = alt_previous_price
-    price['last_price']['bitcoin'] = btc_previous_price
-    price['last_price']['date'] = datetime.datetime.fromtimestamp(time.time()-86400).date()
+    yesterday_time = datetime.datetime.fromtimestamp(time.time()-86400).date()
+    return {"alt":alt_previous_price,'btc': btc_previous_price, 'time': yesterday_time}
+    #price['last_price']['date'] = datetime.datetime.fromtimestamp(time.time()-86400).date()
+
+# Функция для состояния, когда стартовые данные по битку уже получены:
+async def set_starting_data_1 (altcoin):
+    return await get_previous_data_price(altcoin)
+    #btc_previous_price = await get_previous_data_price('bitcoin')
+    
+    #price['last_price'][altcoin] = alt_previous_price
+    #price['last_price']['bitcoin'] = btc_previous_price
+    #price['last_price']['date'] = datetime.datetime.fromtimestamp(time.time()-86400).date()
+
 
 # Функция для "свободной команды": Сборная функция:
-async def subscribe (crypto_asset, date):
-    global price, today_pure_price_mov
+async def subscribe (crypto_asset, date, state:FSMContext):
+    #global price, today_pure_price_mov
     current_pricies = await get_crypto_price('bitcoin', crypto_asset)
-    price['actual_price']['bitcoin'], price['actual_price'][crypto_asset], price['actual_price']['date'] = \
-                                                                                current_pricies['bitcoin'],\
-                                                                                current_pricies[crypto_asset],\
-                                                                                current_pricies['date']
-
-    current_move_price_data = get_current_pure_price_mov(price['last_price'][crypto_asset], 
-                                                        price['actual_price'][crypto_asset],
-                                                        price['last_price']['bitcoin'],
-                                                        price['actual_price']['bitcoin'])
-
+    actual_btc_price, actual_alt_price, actual_date  = current_pricies['bitcoin'], current_pricies[crypto_asset],current_pricies['date']
+    async with state.proxy() as data:
+        btc_last_data = data['price']['coins_last_prices']['bitcoin']['yesterday_price']
+        alt_last_data = data['price']['coins_last_prices'][crypto_asset]['yesterday_price']
+        yesterday_date =  data['price']['coins_last_prices']['bitcoin']['yesterday_date']
+    current_move_price_data = get_current_pure_price_mov(alt_last_data, actual_alt_price, btc_last_data, actual_btc_price)
     crud_data_for_response = {
-        f"Last price of BTC on {price['last_price']['date']}:":f"{round(price['last_price']['bitcoin'],2)}$",
-        'Actual price of BTC:': f"{price['actual_price']['bitcoin']}$",
+        f"Last price of BTC on {yesterday_date}:":f"{round(btc_last_data,2)}$",
+        'Actual price of BTC:': f"{actual_btc_price}$",
         'Bitcoin price movement': f"{current_move_price_data['Bitcoin price movement']}%",
-        f"Last price of {crypto_asset} on {price['last_price']['date']}:":f"{round(price['last_price'][crypto_asset],2)}$",
-        f'Actual price of {crypto_asset}:': f"{round(price['actual_price'][crypto_asset],2)}$",
+        f"Last price of {crypto_asset} on {yesterday_date}:":f"{round(alt_last_data,2)}$",
+        f'Actual price of {crypto_asset}:': f"{round(actual_alt_price,2)}$",
         f'{crypto_asset} price movement:': f"{current_move_price_data['Current altcoin price movement']}%",
         'Asset price synchronization assets:': f"{current_move_price_data['Price movement in one direction']}",
         'Date:': current_move_price_data['date'],
         f'independent movement of an asset {crypto_asset}:': f"{current_move_price_data['Pure price movement data']}%"
     }
     my_response = pandas.Series(crud_data_for_response, crud_data_for_response.keys())
-    price['last_price']['bitcoin'], price['last_price'][crypto_asset], price['last_price']['date'] = price['actual_price']['bitcoin'],\
-                                                                                                        price['actual_price'][crypto_asset],\
-                                                                                                        price['actual_price']['date']
+    # price['last_price']['bitcoin'], price['last_price'][crypto_asset], price['last_price']['date'] = price['actual_price']['bitcoin'],\
+    #                                                                                                     price['actual_price'][crypto_asset],\
+    #                                                                                                     price['actual_price']['date']
     
     return my_response
 
