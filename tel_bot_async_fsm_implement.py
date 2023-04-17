@@ -17,7 +17,7 @@ from aiogram.dispatcher import FSMContext
 
 from messages import START_MESSAGE
 from async_script_fsm_implement import set_starting_data, subscribe, string_handling, \
-                                 subscribe_1, get_previous_data_price, check_actual_price_mov_data, \
+                                 subscribe_1, get_yesterday_data_price, check_actual_price_mov_data, \
                                  check_actual_alt_state, check_actual_btc_history, get_last_week_coin_history, \
                                  get_historical_pure_price_mov, check_historical_pure_price_mov_data
 from models import today_pure_price_mov, global_pure_price_mov, price
@@ -124,7 +124,7 @@ async def handler_get_alt_data_1 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
     except KeyError as e:
-         await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client_3)
+          await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client_3)
 
  
 # Обработчик "свобоного запроса" по активу после того, как недельные данные по 
@@ -134,8 +134,10 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
     user_id = message.from_id
     coin = string_handling(message.text)
     try:
-        yesterday_alt_price = await get_previous_data_price(coin)
-        await check_actual_alt_state(coin, state, yesterday_alt_price)
+    # Может быть эти две строчки можно убрать:
+        #yesterday_alt_price = await get_yesterday_data_price(coin)
+        #await check_actual_alt_state(coin, state, yesterday_alt_price)
+        await check_actual_alt_state(coin, state)
         subscribe_response = await subscribe(coin, state)
         my_response = pandas.Series(subscribe_response, subscribe_response.keys())
         await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
@@ -150,7 +152,7 @@ async def handler_get_alt_data_3 (message: types.Message, state:FSMContext):
     user_id = message.from_id
     coin = string_handling(message.text)
     try:
-        yesterday_alt_price = await get_previous_data_price(coin)
+        yesterday_alt_price = await get_yesterday_data_price(coin)
         type_of_request = await check_actual_alt_state(coin, state, yesterday_alt_price)
         await check_actual_alt_state('bitcoin', state,)
         if type_of_request == 'basic request':

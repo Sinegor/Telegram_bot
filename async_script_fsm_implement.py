@@ -9,6 +9,7 @@ import datetime
 from models import price, today_pure_price_mov, global_pure_price_mov
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
+from aiohttp import ClientSession
 
 
 def string_handling(str:str):
@@ -21,12 +22,12 @@ async def check_actual_alt_state(alt,
     async with my_state.proxy() as data:
         if alt not in data['price']['coins_last_prices'].keys():
             if init_alt_price == None:
-                init_alt_price = await get_previous_data_price(alt)
+                init_alt_price = await get_yesterday_data_price(alt)
             data['price']['coins_last_prices'][alt] = {"today_date":today_date, "yesterday_price": init_alt_price, \
                                                        "last_today_price": {'value': init_alt_price, 'date':{datetime.date.fromtimestamp(time.time()-86400)}} }
             return "basic request"
         elif today_date != data['price']['coins_last_prices'][alt]['today_date']:   
-            last_alt_price = await get_previous_data_price(alt)
+            last_alt_price = await get_yesterday_data_price(alt)
             data['price']['coins_last_prices'][alt]['last_today_price']['value'] = last_alt_price
             data['price']['coins_last_prices'][alt]['last_today_price']['date'] = data['price']['coins_last_prices'][alt]['today_date']
             data['price']['coins_last_prices'][alt]['yesterday_price'] = last_alt_price
@@ -99,22 +100,34 @@ def get_historical_pure_price_mov(alt_data, btc_data):
     return alt_clear_mov_history
         
 # Функция для свободной команды, используется в set_starting_data. Получает данные об изменениях цены актива за прошедшую неделю:
-async def get_previous_data_price(crypto_asset, fiat_coin='usd'):
-    connector = aiohttp.TCPConnector(limit=50, force_close=True)
-    async with aiohttp.ClientSession(connector=connector) as session:
-        my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
-        time_stamp = time.time()-86400
-        date_request = datetime.datetime.fromtimestamp(time_stamp).date()
-        date_param = f'{date_request.strftime("%d-%m-%Y")}'
-        my_params = {'date':date_param}
-        response_data = await make_connection(session, my_url, my_params)
-        data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])                        
-        return data_price
+async def get_yesterday_data_price(crypto_asset, fiat_coin='usd'):
+        try:
+            connector = aiohttp.TCPConnector(limit=50, force_close=True)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                my_url = f'https://api.coingecko.com/api/v3/coins/{crypto_asset}/history'
+                time_stamp = time.time()-86400
+                date_request = datetime.datetime.fromtimestamp(time_stamp).date()
+                date_param = f'{date_request.strftime("%d-%m-%Y")}'
+                my_params = {'date':date_param}
+                response_data = await make_connection(session, my_url, my_params)
+                data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])                        
+                
+                return data_price
+        except KeyError as e:
+            raise KeyError
 
 # Базовая функция направления get-запроса, в которую передаётся объект сессии + параметры запроса.
-async def make_connection(session, url, params):
-    async with session.get(url, params=params,) as response:
-        return await response.text()
+async def make_connection(session:ClientSession, url, params):
+       async with session.get(url, params=params,) as response:
+           if response.status == 429:
+               time_delta = int(response.headers['Retry-After'])
+               print(time_delta)
+               await asyncio.sleep(time_delta)
+               return await make_connection(session, url, params)
+           if response.reason == 'Not Found':
+               raise KeyError
+
+           return await response.text()
 
 # Функция для обработки команды "History": цена за неделю по дням.
 # Необходимо добавить обработчик ошибок
@@ -124,6 +137,7 @@ async def get_last_week_coin_history(coin, fiat_coin='usd'):
     day_ago = 7
     async with aiohttp.ClientSession() as session:
             while day_ago>=1:
+                try:    
                     my_url = f'https://api.coingecko.com/api/v3/coins/{coin}/history'
                     time_stamp = time.time()-86400*day_ago
                     date_request = datetime.datetime.fromtimestamp(time_stamp).date()
@@ -140,7 +154,9 @@ async def get_last_week_coin_history(coin, fiat_coin='usd'):
                         
                     price_coin_data.append(crud_dict)
                     day_ago-=1 
-            
+                except KeyError as e:
+                    print ('Ошибка при получении истории. 145')
+                    continue
             return price_coin_data
 
 async def get_extra_coin_history(coin:str, period:int, last_value, fiat_coin:str ='usd'):
@@ -185,22 +201,27 @@ def get_previous_week_pure_price_mov(alt_price_list, btc_price_list):
 
 # Функция для свободной команды, получает текущую цену переданных криптоактивов.
 async def get_crypto_price(*crypto_assets, fiat_coin='usd'):
-    connector = aiohttp.TCPConnector(limit=50, force_close=True)
-    async with aiohttp.ClientSession(connector=connector) as session:
-        params_query = {
-        'ids': ','.join(crypto_assets),
-        'vs_currencies': fiat_coin
-        }
-        my_url = 'https://api.coingecko.com/api/v3/simple/price'
-        response_data = await make_connection(session, my_url, params_query)
-        data_dict = json.loads(response_data)
-        time_geting_data  = datetime.datetime.now().strftime('%d.%m %H:%M')
-        result_data = {}
-        result_data['date'] = time_geting_data
-        for crypto in crypto_assets:
-            result_data[crypto]= data_dict[crypto][fiat_coin] 
-        return result_data 
-        
+    # while (True):
+    try:
+        connector = aiohttp.TCPConnector(limit=50, force_close=True)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            params_query = {
+            'ids': ','.join(crypto_assets),
+            'vs_currencies': fiat_coin
+            }
+            my_url = 'https://api.coingecko.com/api/v3/simple/price'
+            response_data = await make_connection(session, my_url, params_query)
+            data_dict = json.loads(response_data)
+            time_geting_data  = datetime.datetime.now().strftime('%d.%m %H:%M')
+            result_data = {}
+            result_data['date'] = time_geting_data
+            for crypto in crypto_assets:
+                result_data[crypto]= data_dict[crypto][fiat_coin] 
+            return result_data 
+    except KeyError as e:
+        print(e)
+        # continue 
+    
 # template returning: {'bitcoin': 24531, 'ethereum': 1673.37}
 
 # Функция для свободной команды - расчитывает текущее свободное ценовое движение актива (с момента последней отсечки)
@@ -225,12 +246,13 @@ def get_current_pure_price_mov (last_price_accet,
 # Функция для "свободной команды": Сборная функция:  1. получает данные о недельном ценовом движении битка + выбранного альта. 2. Определяет начальное 
 # прошлое ценовое движение для битка и альта. 3. Возвращает данные о чистом ценовом движении актива за прошедшую неделю:
 async def set_starting_data (altcoin):
-    
-    alt_previous_price = await get_previous_data_price(altcoin)
-    btc_previous_price = await get_previous_data_price('bitcoin')
-    yesterday_time = datetime.datetime.fromtimestamp(time.time()-86400).date().strftime('%d-%m-%Y')
-    return {"alt":alt_previous_price,'btc': btc_previous_price, 'time': yesterday_time}
-    #price['last_price']['date'] = datetime.datetime.fromtimestamp(time.time()-86400).date()
+    try:
+        alt_previous_price = await get_yesterday_data_price(altcoin)
+        btc_previous_price = await get_yesterday_data_price('bitcoin')
+        yesterday_time = datetime.datetime.fromtimestamp(time.time()-86400).date().strftime('%d-%m-%Y')
+        return {"alt":alt_previous_price,'btc': btc_previous_price, 'time': yesterday_time}
+    except KeyError:
+        raise KeyError
 
 
 # Функция для для получения первичной информации по чистому движению актива:
