@@ -6,7 +6,7 @@ import datetime
 import pandas
 import datetime
 
-from models import price, today_pure_price_mov, global_pure_price_mov
+from models import Responce_template
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiohttp import ClientSession
@@ -14,40 +14,48 @@ from aiohttp import ClientSession
 
 def string_handling(str:str):
     return str.rstrip().lstrip().lower()
-# Проверка актуальности раздела ['price']['coins_last_prices'][alt] в MemoryStorage
+
+# Проверка актуальности раздела ['price'][alt]['coins_last_prices'] в MemoryStorage
 async def check_actual_alt_state(alt, 
                                  my_state:FSMContext, 
                                  init_alt_price=None):
     today_date = datetime.date.today().strftime('%d-%m-%Y')
     async with my_state.proxy() as data:
-        if alt not in data['price']['coins_last_prices'].keys():
+        if alt not in data['price'].keys():
             if init_alt_price == None:
                 init_alt_price = await get_yesterday_data_price(alt)
-            data['price']['coins_last_prices'][alt] = {"today_date":today_date, "yesterday_price": init_alt_price, \
-                                                       "last_today_price": {'value': init_alt_price, 'date':{datetime.date.fromtimestamp(time.time()-86400)}} }
+            data['price'][alt] = {'coins_last_prices':{
+                                    "today":today_date, "yesterday_price": init_alt_price, \
+                                   "last_today_price": {'value': init_alt_price, 'date':None}
+                                                        },
+                                   'clean_price_movement':{ "active":False,
+						                                   "today": None,
+						                                    'history': [],
+						                                    'today_mov':[]
+                                                            }                        
+                                    }
             return "basic request"
-        elif today_date != data['price']['coins_last_prices'][alt]['today_date']:   
+        elif today_date != data['price'][alt]['coins_last_prices']['today']:   
             last_alt_price = await get_yesterday_data_price(alt)
-            data['price']['coins_last_prices'][alt]['last_today_price']['value'] = last_alt_price
-            data['price']['coins_last_prices'][alt]['last_today_price']['date'] = data['price']['coins_last_prices'][alt]['today_date']
-            data['price']['coins_last_prices'][alt]['yesterday_price'] = last_alt_price
-            data['price']['coins_last_prices'][alt]['today_date'] = today_date
+            data['price'][alt]['coins_last_prices']['yesterday_price'] = last_alt_price
+            data['price'][alt]['coins_last_prices']['today_date'] = today_date
+            if data['price'][alt]['coins_last_prices']['last_today_price']['date'] != None:
+                data['price'][alt]['coins_last_prices']['last_today_price']['date'] =datetime.datetime.fromtimestamp(time.time()-84600).date().strftime('%d-%m-%Y')
         return 'second request'
     
+ # Проверка актуальности раздела ['price'][alt]['clean_price_movement'] в MemoryStorage, только для подписки. 
+ 
+
 async def check_actual_price_mov_data(coin, state:FSMContext):
-    today_date = datetime.date.today().strftime('%d-%m-%Y')
+    today_date = datetime.datetime.today().date()
     async with state.proxy() as data:
-        if coin not in data['price']['clean_price_movement'].keys():
-            data['price']['clean_price_movement'][coin] = {
-                'today': today_date,
-                'today_mov':{},
-                'history':[]
-            }
-            return 'basic request'
-# необходимо продумать функционал в этой частиЖ
-        elif data['price']['clean_price_movement'][coin]['today'] != today_date:
-            data['price']['clean_price_movement'][coin]['histoty'] = data['price']['clean_price_movement'][coin]['today_mov']
-            data['price']['clean_price_movement'][coin]['today_mov'] = {}
+        if data['price'][coin]['clean_price_movement']['today'] == None:
+            data['price'][coin]['clean_price_movement']['today'] = today_date
+        elif data['price'][coin]['clean_price_movement']['today'] != today_date:
+            await check_actual_btc_history(state)
+            await check_actual_price_mov_data(state)
+            data['price'][coin]['clean_price_movement']['today'] = today_date
+            data['price'][coin]['clean_price_movement']['today_mov'] = []
             return 'second request'
 
 # Проверка актуальности раздела bitcoin_history
@@ -66,10 +74,12 @@ async def check_actual_btc_history(state:FSMContext):
                 extra_history = await get_extra_coin_history('bitcoin',day_delta, last_coin_price )
                 [data['price']['bitcoin_history'].append(new_result) for new_result in extra_history]
 
+
+
 async def check_historical_pure_price_mov_data(alt:str, state:FSMContext):
     yesterday = datetime.datetime.fromtimestamp(time.time()-86400)
     async with state.proxy() as data:
-        checking_data = data['price']['clean_price_movement'][alt]['history']
+        checking_data = data['price'][alt]['clean_price_movement']['history']
         if checking_data ==[]:
             crud_data= await get_last_week_coin_history(alt)
             coin_data = crud_data[(-6):]
@@ -239,7 +249,7 @@ def get_current_pure_price_mov (last_price_accet,
     #print (result)
     result_obj['Pure price movement data'] = round(result_obj['Current altcoin price movement']-result_obj['Bitcoin price movement'],2)
     #print (result_obj['Price movement data'])
-    today_pure_price_mov.append(result_obj)
+    
     return result_obj
 #template of response: {'date': 'Mon Mar 20 15:50:05 2023', 'Price movement in one direction': True, 'Price movement data': 0.0074}
 
@@ -260,58 +270,45 @@ async def subscribe (crypto_asset, state:FSMContext):
     current_pricies = await get_crypto_price('bitcoin', crypto_asset)
     actual_btc_price, actual_alt_price, actual_btc_time, actual_alt_time = current_pricies['bitcoin'], current_pricies[crypto_asset],\
     current_pricies['date'], current_pricies['date']
-    yesterday_date = datetime.date.fromtimestamp(time.time()-86400).strftime('%d-%m-%Y')
-    await check_actual_price_mov_data(crypto_asset, state)
     async with state.proxy() as data:
         data['active_coin'] = crypto_asset
-        btc_last_data = data['price']['coins_last_prices']['bitcoin']['yesterday_price']
-        alt_last_data = data['price']['coins_last_prices'][crypto_asset]['yesterday_price']
-    current_move_price_data = get_current_pure_price_mov(alt_last_data, actual_alt_price, btc_last_data, actual_btc_price)
-    async with state.proxy() as data:
-        data['price']['coins_last_prices']['bitcoin']['last_today_price']['value'] = actual_btc_price
-        data['price']['coins_last_prices'][crypto_asset]['last_today_price']['value'] = actual_alt_price
-        data['price']['coins_last_prices'][crypto_asset]['last_today_price']['date'] = actual_alt_time
-        data['price']['coins_last_prices']['bitcoin']['last_today_price']['date'] = actual_btc_time
-        data['price']['clean_price_movement'][crypto_asset]['today_mov'][f'{yesterday_date[:-5:1]}:{current_pricies["date"]}'] = current_move_price_data
-    crud_data_for_response = {
-        'Asset': crypto_asset,
-        f"Last price of BTC on {yesterday_date}:":f"{round(btc_last_data,2)}$",
-        'Actual price of BTC:': f"{actual_btc_price}$",
-        'Bitcoin price movement': f"{current_move_price_data['Bitcoin price movement']}%",
-        f"Last price of {crypto_asset} on {yesterday_date}:":f"{round(alt_last_data,2)}$",
-        f'Actual price of {crypto_asset}:': f"{round(actual_alt_price,2)}$",
-        f'{crypto_asset} price movement:': f"{current_move_price_data['Current altcoin price movement']}%",
-        'Asset price synchronization assets:': f"{current_move_price_data['Price movement in one direction']}",
-        f'independent movement of an asset {crypto_asset}:': f"{current_move_price_data['Pure price movement data']}%"
-    }
-
+        data['price'][crypto_asset]['coins_last_prices']['last_today_price']['value'] = actual_alt_price
+        data['price'][crypto_asset]['coins_last_prices']['last_today_price']['date'] = actual_alt_time
+        data['price']['bitcoin']['coins_last_prices']['last_today_price']['value'] = actual_btc_price
+        data['price']['bitcoin']['coins_last_prices']['last_today_price']['date'] = actual_alt_time
+        
+        btc_last_data = data['price']['bitcoin']['coins_last_prices']['yesterday_price']
+        alt_last_data = data['price'][crypto_asset]['coins_last_prices']['yesterday_price']
+    current_move_price_data = get_current_pure_price_mov(alt_last_data, actual_alt_price, btc_last_data, actual_btc_price)      
+    response_inst = Responce_template(crypto_asset,
+                                            current_move_price_data, 
+                                          **current_pricies)
+    crud_data_for_response = response_inst.dict()
     return crud_data_for_response
-
-# Функция для получения повторной информации по активу спустя указанное пользователем время.
+        
+        
+# Функция для получения повторной информации при подписке:
 async def subscribe_1(crypto_asset, state:FSMContext):
         current_pricies = await get_crypto_price('bitcoin', crypto_asset)
         actual_btc_price, actual_alt_price, actual_alt_time = current_pricies['bitcoin'], current_pricies[crypto_asset], current_pricies['date']
         async with state.proxy() as data:
-            data['active_coin'] = crypto_asset
-            btc_last_data = data['price']['coins_last_prices']['bitcoin']['last_today_price']['value']
-            btc_last_time = data['price']['coins_last_prices']['bitcoin']['last_today_price']['date']
-            alt_last_data = data['price']['coins_last_prices'][crypto_asset]['last_today_price']['value']
-            alt_last_time = data['price']['coins_last_prices'][crypto_asset]['last_today_price']['date']
-# А надо ли, если эта функция применяется для повторного запроса
-        await check_actual_price_mov_data(crypto_asset, state)    
-        current_move_price_data = get_current_pure_price_mov(alt_last_data, actual_alt_price, btc_last_data, actual_btc_price)
+            btc_last_price = data['price']['bitcoin']['coins_last_prices']['last_today_price']['value']
+            btc_last_time = data['price']['bitcoin']['coins_last_prices']['last_today_price']['date']
+            alt_last_price = data['price'][crypto_asset]['coins_last_prices']['last_today_price']['value']
+            alt_last_time = data['price'][crypto_asset]['coins_last_prices']['last_today_price']['date']
+         
+        current_move_price_data = get_current_pure_price_mov(alt_last_price, actual_alt_price, btc_last_price, actual_btc_price)      
+        response_inst = Responce_template(crypto_asset,
+                                            current_move_price_data, 
+                                          **current_pricies)
+        crud_data_for_response = response_inst.dict()
         async with state.proxy() as data:
-            data['price']['coins_last_prices']['bitcoin']['last_today_price']['value'] = actual_btc_price
-            data['price']['coins_last_prices'][crypto_asset]['last_today_price']['value'] = actual_alt_price
-            data['price']['clean_price_movement'][crypto_asset]['today_mov'][f'{actual_alt_time}'] = current_move_price_data
-        crud_data_for_response = {
-            'Asset': f"{crypto_asset}:",
-            'Bitcoin price movement': f"from {alt_last_time}: {current_move_price_data['Bitcoin price movement']}%",
-            f'Actual price of {crypto_asset}:': f"{round(actual_alt_price,2)}$",
-            f'{crypto_asset} price movement:': f"from {alt_last_time}: {current_move_price_data['Current altcoin price movement']}%",
-            'Asset price synchronization assets:': f"{current_move_price_data['Price movement in one direction']}",
-            f'independent movement of an asset {crypto_asset}:': f"{current_move_price_data['Pure price movement data']}%"
-        }
+                data['price']['bitcoin']['coins_last_prices']['last_today_price']['value'] = actual_btc_price
+                data['price'][crypto_asset]['coins_last_prices']['last_today_price']['value'] = actual_alt_price
+                data['price'][crypto_asset]['coins_last_prices']['last_today_price']['date'] = actual_alt_time
+                data['price']['bitcoin']['coins_last_prices']['last_today_price']['date'] =  actual_alt_time
+                data['price'][crypto_asset]['clean_price_movement']['today_mov'].append(crud_data_for_response)
+                
+
         return crud_data_for_response
-
-
+ 
