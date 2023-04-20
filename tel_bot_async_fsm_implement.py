@@ -19,9 +19,10 @@ from messages import START_MESSAGE
 from async_script_fsm_implement import set_starting_data, subscribe, string_handling, \
                                  subscribe_1, get_yesterday_data_price, check_actual_price_mov_data, \
                                  check_actual_alt_state, check_actual_btc_history, get_last_week_coin_history, \
-                                 get_historical_pure_price_mov, check_historical_pure_price_mov_data, clearning_str, handler_history_data
+                                 get_historical_pure_price_mov, check_historical_pure_price_mov_data, clearning_str, handler_history_data, check_symbol
 
 from keyboards import keyb_client, keyb_client_1, keyb_client_2, keyb_client_3
+from models import SymbolCoinError
 
 
 load_dotenv()
@@ -74,7 +75,6 @@ async def history_handler(message, state:FSMContext):
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
  
 
-
 # Обработчик "кнопки кастомной клавиатуры "alt_subscribe", предлагает ввести количество часов:
 @sin_disp.message_handler(commands=['alt_subscribe'], state=Testing_state.get_pure_alt_move)
 async def handler_request_subscribe (message: types.Message, state:FSMContext):
@@ -82,7 +82,6 @@ async def handler_request_subscribe (message: types.Message, state:FSMContext):
     user_id = message.from_id
     await sin_bot.send_message(user_id, "Укажите c какой переиодичностью вы хотели бы получать информацию. От 60 до 880 минут", reply_markup=keyb_client_2)
     await Testing_state.request_subscribe.set()
-
 
 
 @sin_disp.message_handler(commands=['home'], state=Testing_state.get_pure_alt_move)
@@ -115,11 +114,7 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
  
 
-    
-
-
 # Обработчик первичного "свободного" запроса чистого движения альта. 
-
 @sin_disp.message_handler(state=None)
 async def handler_get_alt_data_1 (message: types.Message, state:FSMContext):
     user_id = message.from_id
@@ -135,11 +130,14 @@ async def handler_get_alt_data_1 (message: types.Message, state:FSMContext):
         # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
-    except KeyError as e:
-          await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client_3)
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
- 
+    except SymbolCoinError as e:
+        my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
+        await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
+    except KeyError as e:
+        await sin_bot.send_message(user_id, "Такая монета не поддерживается, проверьте правильность написания", 
+                                   reply_markup=keyb_client)
     
 # Обработчик "свобоного запроса" по активу после того, как недельные данные по 
 # битку уже запрошены - не запрашивается вчерашняя цена битка:
@@ -156,9 +154,12 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
     except KeyError as e:
-        await message.reply("Такая монета не поддерживается, проверьте правильность написания")
+        await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client)
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
+    except SymbolCoinError as e:
+        my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
+        await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
  
 
 # Обработчик "свобоного запроса" по активу после оформления подписки на данные по другому активу или просто после получения первичной инфы
@@ -176,9 +177,12 @@ async def handler_get_alt_data_3 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
     except KeyError as e:
-        await message.reply("Такая монета не поддерживается, проверьте правильность написания")
+        await message.reply("Такая монета не поддерживается, проверьте правильность написания", keyb_client)
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
+    except SymbolCoinError as e:
+        my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
+        await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
  
    
 @sin_disp.message_handler(commands=['cancel'], state=Testing_state.subscribing)
@@ -221,10 +225,6 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
   
         
-
-
-
-
 # Обработчик "свобоного запроса" по активу после оформления подписки на данные по другому активу 
 @sin_disp.message_handler(state=Testing_state.subscribing)
 async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
@@ -239,14 +239,22 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
     except KeyError as e:
-        await message.reply("Такая монета не поддерживается, проверьте правильность написания")
+        await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client)
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
+    except SymbolCoinError as e:
+        my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
+        await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
  
 # Сбрасывает процедуру подписки:
-
-
-    
+@sin_disp.message_handler(state=Testing_state.request_subscribe, commands=['cancel'])
+async def handler_subscribe (message: types.Message,  state:FSMContext):
+    user_id = message.from_id
+    async with state.proxy() as data:
+        coin = data['active_coin']
+        data['price'][coin]['clean_price_movement']['active'] = False
+    await Testing_state.get_pure_alt_move.set()
+    await sin_bot.send_message(user_id, "Подписка отменена!", reply_markup=keyb_client_1)
 
 
 # Предоставляет данные по активу в рамках подписки через указанное время:
@@ -286,7 +294,6 @@ async def handler_subscribe (message: types.Message, state:FSMContext):
                         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
                         await sin_bot.send_message (user_id, text='Подписка отменена', reply_markup=keyb_client_1)
                         break
-
     except ValueError as e:
         await sin_bot.send_message(user_id, 'Вы ввели некорректные данные. Введите цифру от 60 до 880')
     except TimeoutError as e:

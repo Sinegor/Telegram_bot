@@ -42,4 +42,15 @@ class Responce_template():
                 ]
                 return result_list
         
+class SymbolCoinError(Exception):
+        def __init__(self, *arg): 
+                if arg:
+                        self.message = arg[0]
+                else:
+                        self.message = None
+        def __str__(self):
+                if self.message != None:
+                        return f"{self.message}"
+                else:
+                        return "Такой монеты нет, возможно вы неправильно указали название."
 

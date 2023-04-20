@@ -6,7 +6,7 @@ import datetime
 import pandas
 import datetime
 
-from models import Responce_template
+from models import Responce_template, SymbolCoinError
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiohttp import ClientSession
@@ -14,6 +14,29 @@ from aiohttp import ClientSession
 
 def string_handling(str:str):
     return str.rstrip().lstrip().lower()
+
+# Базовая функция направления get-запроса, в которую передаётся объект сессии + параметры запроса.
+async def make_connection(session:ClientSession, url, params=None):
+       async with session.get(url, params=params,) as response:
+           if response.status == 429:
+               time_delta = int(response.headers['Retry-After'])
+               raise TimeoutError(time_delta)
+           elif response.reason == 'Not Found':
+               raise SymbolCoinError
+           else:
+                return await response.text()
+
+async def check_symbol(symbol:str):
+    async with aiohttp.ClientSession() as session:
+        url = 'https://api.coingecko.com/api/v3/coins/list?include_platform=false'
+        crud_crypto_list:list = await make_connection(session, url)
+        crypto_list = json.loads(crud_crypto_list)
+        possible_coin = []
+        [possible_coin.append(crypto['id']) for crypto in crypto_list if crypto['symbol']==symbol]
+        if possible_coin != []:
+            return [possible_coin]
+        else:
+            raise KeyError ('Указанной вами монеты не существует или она не поддерживается!')
 
 # Проверка актуальности раздела ['price'][alt]['coins_last_prices'] в MemoryStorage
 async def check_actual_alt_state(alt, 
@@ -100,6 +123,7 @@ async def check_historical_pure_price_mov_data(alt:str, state:FSMContext):
             else:
                 return False
             
+
 # Вычисление чистого ценового движения альта.
 def get_historical_pure_price_mov(alt_data, btc_data):
     alt_clear_mov_history = []
@@ -122,21 +146,14 @@ async def get_yesterday_data_price(crypto_asset, fiat_coin='usd'):
                 my_params = {'date':date_param}
                 response_data = await make_connection(session, my_url, my_params)
                 data_price= (json.loads(response_data)['market_data']['current_price'][fiat_coin])                        
-                
                 return data_price
         except KeyError as e:
             raise KeyError
-
-# Базовая функция направления get-запроса, в которую передаётся объект сессии + параметры запроса.
-async def make_connection(session:ClientSession, url, params):
-       async with session.get(url, params=params,) as response:
-           if response.status == 429:
-               time_delta = int(response.headers['Retry-After'])
-               raise TimeoutError(time_delta)
-           if response.reason == 'Not Found':
-               raise KeyError
-
-           return await response.text()
+        except SymbolCoinError as e:
+            possible_coins_list = await check_symbol(crypto_asset)
+            possible_coins_str = clearning_str(str(possible_coins_list), *',')
+            raise SymbolCoinError(possible_coins_str)
+            
 
 # Функция для обработки команды "History": цена за неделю по дням.
 # Необходимо добавить обработчик ошибок
@@ -265,9 +282,13 @@ async def set_starting_data (altcoin):
     except KeyError:
         raise KeyError
 # Удаляет из строки лишние символы. Функция для форматировани ответа:
-def clearning_str(str):
+def clearning_str(str, *mark_ignor):
     clear_list = ["'", '"', "(", ")", '{', '}', ',', '[',']']
-    return str.translate({ord(i): None for i in clear_list })
+    if mark_ignor !=():
+        [clear_list.remove(value) for value in mark_ignor]
+        return str.translate({ord(i): None for i in clear_list })
+    else:
+        return str.translate({ord(i): None for i in clear_list })
 
 # Удаляет из данных лишние символы. Функция для форматировани ответа:
 def handler_history_data(list):
