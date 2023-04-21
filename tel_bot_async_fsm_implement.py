@@ -22,7 +22,7 @@ from async_script_fsm_implement import set_starting_data, subscribe, string_hand
                                  get_historical_pure_price_mov, check_historical_pure_price_mov_data, clearning_str, handler_history_data, check_symbol
 
 from keyboards import keyb_client, keyb_client_1, keyb_client_2, keyb_client_3
-from models import SymbolCoinError
+from models import SymbolCoinError, Responce_template
 
 
 load_dotenv()
@@ -80,7 +80,7 @@ async def history_handler(message, state:FSMContext):
 async def handler_request_subscribe (message: types.Message, state:FSMContext):
     #global price, today_pure_price_mov
     user_id = message.from_id
-    await sin_bot.send_message(user_id, "Укажите c какой переиодичностью вы хотели бы получать информацию. От 60 до 880 минут", reply_markup=keyb_client_2)
+    await sin_bot.send_message(user_id, "Укажите c какой переиодичностью вы хотели бы получать информацию. От 30 до 300 минут", reply_markup=keyb_client_2)
     await Testing_state.request_subscribe.set()
 
 
@@ -102,17 +102,33 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
             if result == False:
                 crud_data = data['price'][coin]['clean_price_movement']['history']
                 clear_data = handler_history_data(crud_data)
+                last_data:str = crud_data[-1][f'{datetime.datetime.fromtimestamp(time.time()-86400).strftime("%d-%m-%Y")}']
+                data_float = float(last_data[0:-1])
                 await sin_bot.send_message(user_id, f'<b>Pure price movement history of {coin}:</b>', parse_mode='HTML')
                 await sin_bot.send_message(user_id, text=clear_data)
+                if data_float >3:
+                   await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+                elif data_float <3:
+                    await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
             else:
                 [data['price'][coin]['clean_price_movement']['history'].append(value) for value in result]
                 crud_data = data['price'][coin]['clean_price_movement']['history']
                 clear_data = handler_history_data(crud_data)
+                last_data:str = crud_data[-1][f'{datetime.datetime.fromtimestamp(time.time()-86400).strftime("%d-%m-%Y")}']
+                data_float = float(last_data[0:-1])
                 await sin_bot.send_message(user_id, f'<b>Pure price movement history of {coin}:</b>', parse_mode='HTML')
                 await sin_bot.send_message(user_id, clear_data)
+                if data_float >3:
+                   await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+                elif data_float <-3:
+                    await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
+    except KeyError as e:
+        await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client)
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
- 
+    except SymbolCoinError as e:
+        my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
+        await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
 
 # Обработчик первичного "свободного" запроса чистого движения альта. 
 @sin_disp.message_handler(state=None)
@@ -123,13 +139,14 @@ async def handler_get_alt_data_1 (message: types.Message, state:FSMContext):
         yesterday_data = await set_starting_data(coin)
         await check_actual_alt_state(coin, state, yesterday_data['alt'])
         await check_actual_alt_state('bitcoin', state, yesterday_data['btc'])
-        subscribe_response = await subscribe(coin, state)
-        subscribe_response = clearning_str(subscribe_response)
-        
-        # my_response = pandas.Series(subscribe_response, subscribe_response.keys())
-        # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
+        crud_subscribe_response = await subscribe(coin, state)
+        subscribe_response = clearning_str(crud_subscribe_response.create_basic_responce())
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
+        if crud_subscribe_response.current_move_price_data['Pure price movement data']>3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+        elif crud_subscribe_response.current_move_price_data['Pure price movement data']<-3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
     except SymbolCoinError as e:
@@ -147,12 +164,14 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
     coin = string_handling(message.text)
     try:
         await check_actual_alt_state(coin, state)
-        subscribe_response = await subscribe(coin, state)
-        subscribe_response = clearning_str(subscribe_response)
-        # my_response = pandas.Series(subscribe_response, subscribe_response.keys())
-        # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
+        crud_subscribe_response = await subscribe(coin, state)
+        subscribe_response = clearning_str(crud_subscribe_response.create_basic_responce())
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
+        if crud_subscribe_response.current_move_price_data['Pure price movement data']>3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+        elif crud_subscribe_response.current_move_price_data['Pure price movement data']<-3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
     except KeyError as e:
         await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client)
     except TimeoutError as e:
@@ -170,12 +189,16 @@ async def handler_get_alt_data_3 (message: types.Message, state:FSMContext):
         user_id = message.from_id
         coin = string_handling(message.text)
         await check_actual_alt_state(coin, state)
-        subscribe_response = await subscribe(coin, state)
-        subscribe_response = clearning_str(subscribe_response)
+        crud_subscribe_response = await subscribe(coin, state)
+        subscribe_response = clearning_str(crud_subscribe_response.create_basic_responce())
         # my_response = pandas.Series(subscribe_response, subscribe_response.keys())
         # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
+        if crud_subscribe_response.current_move_price_data['Pure price movement data']>3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+        elif crud_subscribe_response.current_move_price_data['Pure price movement data']<-3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
     except KeyError as e:
         await message.reply("Такая монета не поддерживается, проверьте правильность написания", keyb_client)
     except TimeoutError as e:
@@ -221,9 +244,13 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
             await sin_bot.send_message(user_id, clear_data_gl_history)
             await sin_bot.send_message(user_id, f"История сегодняшних изменений чистового ценового движения{coin}:")
             await sin_bot.send_message(user_id, today_mov_response)
+    except KeyError as e:
+        await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client)
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
-  
+    except SymbolCoinError as e:
+        my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
+        await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML') 
         
 # Обработчик "свобоного запроса" по активу после оформления подписки на данные по другому активу 
 @sin_disp.message_handler(state=Testing_state.subscribing)
@@ -232,12 +259,16 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
         user_id = message.from_id
         coin = string_handling(message.text)
         await check_actual_alt_state(coin, state)
-        subscribe_response = await subscribe(coin, state)
-        subscribe_response = clearning_str(subscribe_response)
+        crud_subscribe_response = await subscribe(coin, state)
+        subscribe_response = clearning_str(crud_subscribe_response.create_basic_responce())
         # my_response = pandas.Series(subscribe_response, subscribe_response.keys())
         # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
-        await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
+        await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
+        if crud_subscribe_response.current_move_price_data['Pure price movement data']>3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+        elif crud_subscribe_response.current_move_price_data['Pure price movement data']<-3:
+            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
     except KeyError as e:
         await message.reply("Такая монета не поддерживается, проверьте правильность написания", reply_markup=keyb_client)
     except TimeoutError as e:
@@ -265,8 +296,8 @@ async def handler_subscribe (message: types.Message, state:FSMContext):
     current_date = datetime.datetime.now()
     try:
         value = int(message.text)
-        if value > 880 or value < 60:
-            await sin_bot.send_message(user_id, 'Вы ввели некорректные данные. Введите цифру от 60 до 880')
+        if value > 300 or value < 30:
+            await sin_bot.send_message(user_id, 'Вы ввели некорректные данные. Введите цифру от 30 до 300')
             
         else:
             async with state.proxy() as data:
@@ -281,21 +312,31 @@ async def handler_subscribe (message: types.Message, state:FSMContext):
                     if data['price'][coin]['clean_price_movement']['active']==True:
                         data['active_coin'] = coin
                         await check_actual_price_mov_data(coin, state) 
-                        subscribe_response = await subscribe_1(coin, state)
-                        subscribe_response = clearning_str(subscribe_response)
+                        
+                        response_inst = await subscribe_1(coin, state)
+                        crud_data_for_response = response_inst.create_basic_responce()
+                        subscribe_response = clearning_str(crud_data_for_response)
                         await Testing_state.subscribing.set()
                         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
+                        if response_inst.current_move_price_data['Pure price movement data']>3:
+                            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+                        elif response_inst.current_move_price_data['Pure price movement data']<-3:
+                            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
                         await sin_bot.send_message (user_id, text='Если хотите отменить подписку нажмите /cancel.', reply_markup=keyb_client_3)
                     else:
-                        subscribe_response = await subscribe_1(coin, state)
-                        subscribe_response = clearning_str(subscribe_response)
-                        await Testing_state.get_btc_historical_data.set()
-                        #await sin_bot.send_message(user_id, my_response)
+                        response_inst = await subscribe_1(coin, state)
+                        crud_data_for_response = response_inst.create_basic_responce()
+                        subscribe_response = clearning_str(crud_data_for_response)
+                        await Testing_state.get_btc_historical_data.set()        
                         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
+                        if response_inst.current_move_price_data['Pure price movement data']>3:
+                            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
+                        elif response_inst.current_move_price_data['Pure price movement data']<-3:
+                            await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
                         await sin_bot.send_message (user_id, text='Подписка отменена', reply_markup=keyb_client_1)
                         break
     except ValueError as e:
-        await sin_bot.send_message(user_id, 'Вы ввели некорректные данные. Введите цифру от 60 до 880')
+        await sin_bot.send_message(user_id, 'Вы ввели некорректные данные. Введите цифру от 30 до 300')
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
  

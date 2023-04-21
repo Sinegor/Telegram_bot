@@ -318,7 +318,7 @@ async def subscribe (crypto_asset, state:FSMContext):
                                             current_move_price_data, 
                                           **current_pricies)
     crud_data_for_response = response_inst.create_basic_responce()
-    return crud_data_for_response
+    return response_inst
         
         
 # Функция для получения повторной информации при подписке:
@@ -336,7 +336,7 @@ async def subscribe_1(crypto_asset, state:FSMContext):
                                             current_move_price_data, 
                                           **current_pricies)
         history_data = response_inst.create_history_mov_data()
-        crud_data_for_response = response_inst.create_basic_responce()
+        
         
      
         async with state.proxy() as data:
@@ -347,5 +347,5 @@ async def subscribe_1(crypto_asset, state:FSMContext):
                 data['price'][crypto_asset]['clean_price_movement']['today_mov'].append(history_data)
                 
 
-        return crud_data_for_response
+        return response_inst
  
