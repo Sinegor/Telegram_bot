@@ -44,17 +44,22 @@ async def start_handler (message: types.Message, state:FSMContext):
     user_id = message.from_id
     user_name = message.from_user.full_name
     logging.info(f'{time.asctime()}: start work whith user {user_id} {user_name}')
+#Formation of Memory Storage structure for new user:
     async with state.proxy() as data:
         data['price']= {  
         'bitcoin_history':[],
-        }
+        }   
         data['active_coin'] = None
         await sin_bot.send_message(user_id, START_MESSAGE.format(user_name), reply_markup=keyb_client)
 
 
-# обработка кастомной кнопки "Histoty". Получаем данные о ценовых движениях битка за прошедшую неделю:
+
 @sin_disp.message_handler(commands=["history"], state="*")
 async def history_handler(message, state:FSMContext):
+    """
+    Custom button processing "Histoty". 
+    We get data about price movements of the bitcoin for the last week
+    """
     try:
         user_id = message.from_id
         user_name = message.from_user.full_name
@@ -69,16 +74,19 @@ async def history_handler(message, state:FSMContext):
             await sin_bot.send_message(user_id, '<b>Bitcoin history:</b>', parse_mode='HTML')
             await sin_bot.send_message(user_id, clear_data)
             await sin_bot.send_message (user_id, "Specify the name of the coin for which you want to get information")
-    # Меняем состояние, чтобы в случае повторных запросов брать историю из Хранилища.
+    # Caching Bitcoin Data to Retrieve History from Memory Storage if Repeated Requests:
             await Testing_state.get_btc_historical_data.set()
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
- 
 
-# Обработчик "кнопки кастомной клавиатуры "alt_subscribe", предлагает ввести количество часов:
+
+
 @sin_disp.message_handler(commands=['alt_subscribe'], state=Testing_state.get_pure_alt_move)
 async def handler_request_subscribe (message: types.Message, state:FSMContext):
-    #global price, today_pure_price_mov
+    """
+    Handler "custom keyboard button "alt_subscribe", suggests to specify the interval 
+    through which the user will receive new data
+    """
     user_id = message.from_id
     await sin_bot.send_message(user_id, "Укажите c какой переиодичностью вы хотели бы получать информацию. От 30 до 300 минут", reply_markup=keyb_client_2)
     await Testing_state.request_subscribe.set()
@@ -86,12 +94,20 @@ async def handler_request_subscribe (message: types.Message, state:FSMContext):
 
 @sin_disp.message_handler(commands=['home'], state=Testing_state.get_pure_alt_move)
 async def handler_cancel_1 (message: types.Message, state:FSMContext):
+    """
+    State of Memory Storage reset to 'get_btc_historical_data'
+    """
     user_id = message.from_id
     await Testing_state.get_btc_historical_data.set()
     await sin_bot.send_message(user_id, text='Вы вернулись на первоначальный экран', reply_markup=keyb_client)
 
+
 @sin_disp.message_handler(commands=['alt_history'], state=Testing_state.get_pure_alt_move)
 async def st_handler_1 (message: types.Message, state:FSMContext):
+    """
+    Handler "custom keyboard button "alt_history". We receive data for a week on net price movement altcoin. 
+    In the event that coin lags far behind Bitcoin or is far ahead of it, emojis are added. 
+    """
     try:
         user_id = message.from_id
         await check_actual_btc_history(state)
@@ -108,7 +124,7 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
                 await sin_bot.send_message(user_id, text=clear_data)
                 if data_float >3:
                    await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqItkQYwRYaRvKyla92ymdZWPCaJEhAAC3AsAAt8K6Uo-ZVuZEObjpC8E')
-                elif data_float <3:
+                elif data_float <-3:
                     await sin_bot.send_sticker(user_id, 'CAACAgIAAxkBAAEIqH1kQYuBMBnCMxkG3TbC9gdz9mADGAACKwADspiaDvxK5u_xtoLRLwQ')
             else:
                 [data['price'][coin]['clean_price_movement']['history'].append(value) for value in result]
@@ -130,9 +146,12 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
         my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
         await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
 
-# Обработчик первичного "свободного" запроса чистого движения альта. 
+
 @sin_disp.message_handler(state=None)
 async def handler_get_alt_data_1 (message: types.Message, state:FSMContext):
+    """
+    Request a pure price movement aitcoin for last day from the state "None". Primary.
+    """
     user_id = message.from_id
     coin = string_handling(message.text)
     try:
@@ -156,10 +175,12 @@ async def handler_get_alt_data_1 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, "Такая монета не поддерживается, проверьте правильность написания", 
                                    reply_markup=keyb_client)
     
-# Обработчик "свобоного запроса" по активу после того, как недельные данные по 
-# битку уже запрошены - не запрашивается вчерашняя цена битка:
+
 @sin_disp.message_handler(state=Testing_state.get_btc_historical_data)
 async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
+    """
+    Request a pure price movement aitcoin for last day from the state "get_btc_historical_data".
+    """
     user_id = message.from_id
     coin = string_handling(message.text)
     try:
@@ -181,18 +202,18 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
  
 
-# Обработчик "свобоного запроса" по активу после оформления подписки на данные по другому активу или просто после получения первичной инфы
-# по другому активу:
+
 @sin_disp.message_handler(state=Testing_state.get_pure_alt_move)
 async def handler_get_alt_data_3 (message: types.Message, state:FSMContext):
+    """
+    Request a pure price movement aitcoin for last day from the state "get_pure_alt_move"
+    """
     try:
         user_id = message.from_id
         coin = string_handling(message.text)
         await check_actual_alt_state(coin, state)
         crud_subscribe_response = await subscribe(coin, state)
         subscribe_response = clearning_str(crud_subscribe_response.create_basic_responce())
-        # my_response = pandas.Series(subscribe_response, subscribe_response.keys())
-        # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
         if crud_subscribe_response.current_move_price_data['Pure price movement data']>3:
@@ -210,6 +231,9 @@ async def handler_get_alt_data_3 (message: types.Message, state:FSMContext):
    
 @sin_disp.message_handler(commands=['cancel'], state=Testing_state.subscribing)
 async def handler_cancel_1 (message: types.Message, state:FSMContext):
+    """
+    Unsubscribe from Coin tracking
+    """
     user_id = message.from_id
     async with state.proxy() as data:
         coin = data['active_coin']
@@ -219,9 +243,12 @@ async def handler_cancel_1 (message: types.Message, state:FSMContext):
                                        Введите название актива, по которому вы хотите получить информацию', reply_markup=keyb_client)
 
 
-# Обработчик "кнопки кастомной клавиатуры alt_history" во время действующей подписики:
+
 @sin_disp.message_handler(commands=['alt_history'], state=Testing_state.subscribing)
 async def st_handler_1 (message: types.Message, state:FSMContext):
+    """
+    Getting information on the coin last week from the state "subscribing"
+    """
     try:
         user_id = message.from_id
         await check_actual_btc_history(state)
@@ -252,17 +279,19 @@ async def st_handler_1 (message: types.Message, state:FSMContext):
         my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
         await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML') 
         
-# Обработчик "свобоного запроса" по активу после оформления подписки на данные по другому активу 
+
 @sin_disp.message_handler(state=Testing_state.subscribing)
 async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
+    """
+    Getting the coin data for the previous day from the state "subscribing"(when another coin is tracked)
+    """
+
     try:
         user_id = message.from_id
         coin = string_handling(message.text)
         await check_actual_alt_state(coin, state)
         crud_subscribe_response = await subscribe(coin, state)
         subscribe_response = clearning_str(crud_subscribe_response.create_basic_responce())
-        # my_response = pandas.Series(subscribe_response, subscribe_response.keys())
-        # await sin_bot.send_message(user_id, my_response, reply_markup=keyb_client_1)
         await Testing_state.get_pure_alt_move.set()
         await sin_bot.send_message(user_id, subscribe_response, parse_mode="HTML", reply_markup=keyb_client_1)
         if crud_subscribe_response.current_move_price_data['Pure price movement data']>3:
@@ -277,9 +306,12 @@ async def handler_get_alt_data_2 (message: types.Message, state:FSMContext):
         my_message = f' Попробуйте следующее название/ия:\n<b>{e}</b>'
         await sin_bot.send_message(user_id, my_message, reply_markup=keyb_client, parse_mode='HTML')
  
-# Сбрасывает процедуру подписки:
+
 @sin_disp.message_handler(state=Testing_state.request_subscribe, commands=['cancel'])
 async def handler_subscribe (message: types.Message,  state:FSMContext):
+    """
+    Reset subscription procedure from "request_subscribe" status (subscription not yet established)
+    """
     user_id = message.from_id
     async with state.proxy() as data:
         coin = data['active_coin']
@@ -288,10 +320,12 @@ async def handler_subscribe (message: types.Message,  state:FSMContext):
     await sin_bot.send_message(user_id, "Подписка отменена!", reply_markup=keyb_client_1)
 
 
-# Предоставляет данные по активу в рамках подписки через указанное время:
+
 @sin_disp.message_handler(state=Testing_state.request_subscribe)
 async def handler_subscribe (message: types.Message, state:FSMContext):
-    #global price, today_pure_price_mov
+    """
+    Getting a subscription time interval from the user and its design
+    """
     user_id = message.from_id
     current_date = datetime.datetime.now()
     try:
@@ -339,9 +373,7 @@ async def handler_subscribe (message: types.Message, state:FSMContext):
         await sin_bot.send_message(user_id, 'Вы ввели некорректные данные. Введите цифру от 30 до 300')
     except TimeoutError as e:
         await sin_bot.send_message(user_id, f"Повторите запрос через {e.args[0]} секунд")
- 
-    
-    
+
 
 if __name__ == '__main__':
     executor.start_polling(sin_disp,timeout=200, skip_updates=False,)     
